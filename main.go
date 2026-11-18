@@ -70,7 +70,6 @@ func runAnalyze(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// Перевіряємо, чи передавався прапорець --seed
 	hasSeed := false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "seed" {

@@ -29,10 +29,10 @@ type AnalysisReport struct {
 	Max      float64
 	Sum      float64
 	Average  float64
-	Low      int // до 5
-	Moderate int // 5.1 - 15
-	High     int // 15.1 - 30
-	VeryHigh int // понад 30
+	Low      int
+	Moderate int
+	High     int
+	VeryHigh int
 	Repeats  []RepeatItem
 }
 
