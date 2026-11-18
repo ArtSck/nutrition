@@ -3,132 +3,108 @@ package analyzer
 import (
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 )
 
 const (
-	MinSampleCount   = 5
-	MaxSampleCount   = 100
-	MaxSubjectLength = 100
-	MinSugarValue    = 0.0
-	MaxSugarValue    = 100.0
+	MinCount = 5
+	MaxCount = 100
 )
-
-type SugarContent float64
-
-type CategoryCount struct {
-	Name  string
-	Count int
-}
-
-type RepeatFrequency struct {
-	Value SugarContent
-	Count int
-}
 
 type SugarSample struct {
 	subject string
-	values  []SugarContent
+	values  []float64
+}
+
+type RepeatItem struct {
+	Value float64
+	Count int
 }
 
 type AnalysisReport struct {
-	Subject    string
-	Count      int
-	Min        SugarContent
-	Max        SugarContent
-	Sum        float64
-	Average    float64
-	Categories []CategoryCount
-	Repeats    []RepeatFrequency
+	Subject  string
+	Count    int
+	Min      float64
+	Max      float64
+	Sum      float64
+	Average  float64
+	Low      int // до 5
+	Moderate int // 5.1 - 15
+	High     int // 15.1 - 30
+	VeryHigh int // понад 30
+	Repeats  []RepeatItem
 }
 
-func NewSugarSample(subject string, rawValues []float64) (SugarSample, error) {
+func NewSugarSample(subject string, raw []float64) (SugarSample, error) {
 	trimmed := strings.TrimSpace(subject)
-	if trimmed == "" {
-		return SugarSample{}, errors.New("предметний параметр не може бути порожнім")
+	if trimmed == "" || len([]rune(trimmed)) > 100 {
+		return SugarSample{}, errors.New("категорія має містити від 1 до 100 символів")
 	}
-	if len([]rune(trimmed)) > MaxSubjectLength {
-		return SugarSample{}, fmt.Errorf("предметний параметр перевищує %d символів", MaxSubjectLength)
+	if len(raw) < MinCount || len(raw) > MaxCount {
+		return SugarSample{}, fmt.Errorf("кількість значень має бути від %d до %d", MinCount, MaxCount)
 	}
-	if len(rawValues) < MinSampleCount || len(rawValues) > MaxSampleCount {
-		return SugarSample{}, fmt.Errorf("кількість значень має бути від %d до %d, отримано %d", MinSampleCount, MaxSampleCount, len(rawValues))
-	}
-	copied := make([]SugarContent, len(rawValues))
-	for i, v := range rawValues {
-		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return SugarSample{}, fmt.Errorf("значення [%d] не є скінченним числом", i)
+
+	copied := make([]float64, len(raw))
+	for i, v := range raw {
+		if v < 0 || v > 100 {
+			return SugarSample{}, fmt.Errorf("значення %.2f поза межами 0..100", v)
 		}
-		if v < MinSugarValue || v > MaxSugarValue {
-			return SugarSample{}, fmt.Errorf("значення %.2f виходить за допустимий діапазон [%.1f, %.1f]", v, MinSugarValue, MaxSugarValue)
-		}
-		copied[i] = SugarContent(v)
+		copied[i] = v
 	}
+
 	return SugarSample{subject: trimmed, values: copied}, nil
 }
 
-func (s SugarSample) Subject() string { return s.subject }
-
-func (s SugarSample) Values() []SugarContent {
-	out := make([]SugarContent, len(s.values))
+func (s SugarSample) Values() []float64 {
+	out := make([]float64, len(s.values))
 	copy(out, s.values)
 	return out
 }
 
 func (s SugarSample) Analyze() (AnalysisReport, error) {
-	if len(s.values) < MinSampleCount {
-		return AnalysisReport{}, errors.New("набір даних не ініціалізовано або має недостатньо елементів")
+	if len(s.values) < MinCount {
+		return AnalysisReport{}, errors.New("некоректний стан вибірки")
 	}
-	minVal, maxVal := s.values[0], s.values[0]
-	sum := 0.0
-	low, moderate, high, veryHigh := 0, 0, 0, 0
-	freqMap := make(map[SugarContent]int)
 
+	rep := AnalysisReport{
+		Subject: s.subject,
+		Count:   len(s.values),
+		Min:     s.values[0],
+		Max:     s.values[0],
+	}
+
+	freq := make(map[float64]int)
 	for _, v := range s.values {
-		if v < minVal {
-			minVal = v
+		if v < rep.Min {
+			rep.Min = v
 		}
-		if v > maxVal {
-			maxVal = v
+		if v > rep.Max {
+			rep.Max = v
 		}
-		sum += float64(v)
+		rep.Sum += v
+
 		switch {
-		case v <= 5.0:
-			low++
-		case v <= 15.0:
-			moderate++
-		case v <= 30.0:
-			high++
+		case v <= 5:
+			rep.Low++
+		case v <= 15:
+			rep.Moderate++
+		case v <= 30:
+			rep.High++
 		default:
-			veryHigh++
+			rep.VeryHigh++
 		}
-		freqMap[v]++
+		freq[v]++
 	}
 
-	categories := []CategoryCount{
-		{Name: "Низький (до 5)", Count: low},
-		{Name: "Помірний (5.1-15)", Count: moderate},
-		{Name: "Високий (15.1-30)", Count: high},
-		{Name: "Дуже високий (понад 30)", Count: veryHigh},
-	}
+	rep.Average = rep.Sum / float64(rep.Count)
 
-	repeats := make([]RepeatFrequency, 0)
-	for val, freq := range freqMap {
-		if freq > 1 {
-			repeats = append(repeats, RepeatFrequency{Value: val, Count: freq})
+	for val, cnt := range freq {
+		if cnt > 1 {
+			rep.Repeats = append(rep.Repeats, RepeatItem{Value: val, Count: cnt})
 		}
 	}
-	sort.Slice(repeats, func(i, j int) bool { return repeats[i].Value < repeats[j].Value })
+	sort.Slice(rep.Repeats, func(i, j int) bool { return rep.Repeats[i].Value < rep.Repeats[j].Value })
 
-	return AnalysisReport{
-		Subject:    s.subject,
-		Count:      len(s.values),
-		Min:        minVal,
-		Max:        maxVal,
-		Sum:        sum,
-		Average:    sum / float64(len(s.values)),
-		Categories: categories,
-		Repeats:    repeats,
-	}, nil
+	return rep, nil
 }
