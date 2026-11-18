@@ -29,7 +29,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		printHelp(stdout)
 		return 0
 	case "version":
-		fmt.Fprintln(stdout, "nutrition v1.0.0 (Варіант 19 — Харчова цінність)")
+		fmt.Fprintln(stdout, "nutrition v1.0 (Харчова цінність)")
 		return 0
 	default:
 		fmt.Fprintf(stderr, "Помилка: невідома підкоманда %q\n", args[0])
@@ -133,7 +133,7 @@ func printReport(w io.Writer, rep analyzer.AnalysisReport, values []float64, col
 }
 
 func printHelp(w io.Writer) {
-	fmt.Fprintln(w, "nutrition — CLI-аналізатор харчової цінності (Варіант 19)")
+	fmt.Fprintln(w, "nutrition — CLI-аналізатор харчової цінності")
 	fmt.Fprintln(w, "Використання:")
 	fmt.Fprintln(w, "  nutrition analyze --count <5..100> --subject <назва> [--seed <число>] [--no-color]")
 	fmt.Fprintln(w, "  nutrition help | version")
