@@ -1,149 +1,140 @@
 package main
 
 import (
-	"bufio"
+	"errors"
+	"flag"
 	"fmt"
-	"math"
+	"io"
 	"os"
-	"slices"
-	"strconv"
 	"strings"
 
+	"github.com/ArtSck/nutrition/analyzer"
 	"github.com/compilyator/VNTU_GoLang/labs/Lab2Data/nutrition"
 )
 
 func main() {
-	var count int
-	var category string
-	scanner := bufio.NewScanner(os.Stdin)
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	fmt.Print("Введіть кількість елементів (від 5 до 100): ")
-	if !scanner.Scan() {
-		fmt.Println("\x1b[31mПомилка: кількість елементів не може бути порожньою\x1b[0m")
-		return
-	}
-	countText := strings.TrimSpace(scanner.Text())
-	count, err := strconv.Atoi(countText)
-	if err != nil || count < 5 || count > 100 {
-		fmt.Println("\x1b[31mПомилка: кількість елементів має бути цілим числом від 5 до 100\x1b[0m")
-		return
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		printHelp(stderr)
+		return 2
 	}
 
-	fmt.Print("Введіть категорію (наприклад, breakfast cereals): ")
-	if !scanner.Scan() {
-		fmt.Println("\x1b[31mПомилка: категорія не може бути порожньою\x1b[0m")
-		return
+	switch args[0] {
+	case "analyze":
+		return runAnalyze(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		printHelp(stdout)
+		return 0
+	case "version":
+		fmt.Fprintln(stdout, "nutrition v1.0.0 (Варіант 19 — Харчова цінність)")
+		return 0
+	default:
+		fmt.Fprintf(stderr, "Помилка: невідома підкоманда %q\n", args[0])
+		printHelp(stderr)
+		return 2
+	}
+}
+
+func runAnalyze(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	count := fs.Int("count", 0, "Кількість елементів (5..100)")
+	subject := fs.String("subject", "", "Категорія продуктів (до 100 символів)")
+	seed := fs.Int64("seed", 0, "Необов'язковий seed для відтворюваності")
+	noColor := fs.Bool("no-color", false, "Вимкнути кольори")
+	fs.Usage = func() { printHelp(stderr) }
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printHelp(stdout)
+			return 0
+		}
+		return 2
 	}
 
-	category = strings.TrimSpace(scanner.Text())
-	if category == "" {
-		fmt.Println("\x1b[31mПомилка: категорія не може бути порожньою\x1b[0m")
-		return
+	if fs.NArg() > 0 {
+		fmt.Fprintln(stderr, "Помилка: зайві позиційні аргументи")
+		return 2
+	}
+	if *count < analyzer.MinCount || *count > analyzer.MaxCount {
+		fmt.Fprintln(stderr, "Помилка: --count має бути від 5 до 100")
+		return 2
+	}
+	trimmedSubject := strings.TrimSpace(*subject)
+	if trimmedSubject == "" || len([]rune(trimmedSubject)) > 100 {
+		fmt.Fprintln(stderr, "Помилка: --subject має містити від 1 до 100 символів")
+		return 2
 	}
 
-	const seed int64 = 42
-	values, err := nutrition.GenerateWithSeed(count, category, seed)
+	// Перевіряємо, чи передавався прапорець --seed
+	hasSeed := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "seed" {
+			hasSeed = true
+		}
+	})
+
+	var raw []float64
+	var err error
+	if hasSeed {
+		raw, err = nutrition.GenerateWithSeed(*count, trimmedSubject, *seed)
+	} else {
+		raw, err = nutrition.Generate(*count, trimmedSubject)
+	}
 	if err != nil {
-		fmt.Println("\x1b[31mПомилка:", err, "\x1b[0m")
-		return
+		fmt.Fprintf(stderr, "Помилка генерації: %v\n", err)
+		return 1
 	}
-	secondValues, err := nutrition.GenerateWithSeed(count, category, seed)
+
+	sample, err := analyzer.NewSugarSample(trimmedSubject, raw)
 	if err != nil {
-		fmt.Println("\x1b[31mПомилка:", err, "\x1b[0m")
-		return
+		fmt.Fprintf(stderr, "Помилка даних: %v\n", err)
+		return 1
 	}
 
-	fmt.Println("\x1b[32mЗгенеровані дані (г цукру на 100 г): \x1b[0m", values)
-	fmt.Println("\x1b[32mПовторний виклик дав такий самий зріз:", slices.Equal(values, secondValues), "\x1b[0m")
-
-	min := values[0]
-	max := values[0]
-	sum := 0.0
-
-	for _, v := range values {
-		if v < min {
-			min = v
-		}
-		if v > max {
-			max = v
-		}
-		sum += v
-	}
-	average := sum / float64(len(values))
-
-	fmt.Println("\x1b[33mМінімум: ", min)
-	fmt.Println("\x1b[33mМаксимум: ", max)
-	fmt.Printf("\x1b[33mСума: %.2f\x1b[0m\n", sum)
-	fmt.Printf("\x1b[33mСереднє: %.2f\x1b[0m\n", average)
-
-	low, moderate, high, veryHigh := 0, 0, 0, 0
-	for _, v := range values {
-		switch {
-		case v <= 5:
-			low++
-		case v <= 15:
-			moderate++
-		case v <= 30:
-			high++
-		default:
-			veryHigh++
-		}
-	}
-
-	fmt.Println("\x1b[33m- Категоризація вмісту цукру:\x1b[0m")
-	fmt.Println("\x1b[33m- Низький (до 5): \x1b[0m", low)
-	fmt.Println("\x1b[33m- Помірний (5.1-15): \x1b[0m", moderate)
-	fmt.Println("\x1b[33m- Високий (15.1-30): \x1b[0m", high)
-	fmt.Println("\x1b[33m- Дуже високий (понад 30): \x1b[0m", veryHigh)
-
-	countsMap := make(map[float64]int)
-	for _, v := range values {
-		countsMap[v]++
-	}
-
-	fmt.Println("\x1b[33m- Повтори значень через map:\x1b[0m")
-	for val, freq := range countsMap {
-		if freq > 1 {
-			fmt.Println("\x1b[33mЗначення \x1b[0m", val, "\x1b[33mзустрічається\x1b[0m", freq, "\x1b[33mраз\x1b[0m")
-		}
-	}
-
-	first, err := nutrition.GenerateWithSeed(count, category, 42)
+	rep, err := sample.Analyze()
 	if err != nil {
-		fmt.Println("\x1b[31mПомилка:", err, "\x1b[0m")
-		return
+		fmt.Fprintf(stderr, "Помилка аналізу: %v\n", err)
+		return 1
 	}
 
-	second, err := nutrition.GenerateWithSeed(count, category, 43)
-	if err != nil {
-		fmt.Println("\x1b[31mПомилка:", err, "\x1b[0m")
-		return
+	printReport(stdout, rep, sample.Values(), !*noColor)
+	return 0
+}
+
+func printReport(w io.Writer, rep analyzer.AnalysisReport, values []float64, color bool) {
+	green, yellow, reset := "", "", ""
+	if color {
+		green, yellow, reset = "\x1b[32m", "\x1b[33m", "\x1b[0m"
 	}
 
-	fmt.Println("\x1b[36mSeed 42:\x1b[0m", first)
-	fmt.Println("\x1b[36mSeed 43:\x1b[0m", second)
-	fmt.Println("\x1b[36mЗрізи різні:\x1b[0m", !slices.Equal(first, second))
+	fmt.Fprintf(w, "%sКатегорія:%s %s\n", yellow, reset, rep.Subject)
+	fmt.Fprintf(w, "%sДані (г цукру на 100 г):%s %v\n", green, reset, values)
+	fmt.Fprintf(w, "%sКількість:%s %d\n", yellow, reset, rep.Count)
+	fmt.Fprintf(w, "%sМінімум:%s %.2f\n", yellow, reset, rep.Min)
+	fmt.Fprintf(w, "%sМаксимум:%s %.2f\n", yellow, reset, rep.Max)
+	fmt.Fprintf(w, "%sСума:%s %.2f\n", yellow, reset, rep.Sum)
+	fmt.Fprintf(w, "%sСереднє:%s %.2f\n", yellow, reset, rep.Average)
+	fmt.Fprintf(w, "%sКатегорії:%s низький=%d, помірний=%d, високий=%d, дуже високий=%d\n",
+		yellow, reset, rep.Low, rep.Moderate, rep.High, rep.VeryHigh)
 
-	fmt.Print("Введіть бажаний ліміт цукру у продукті (від 0.1 до 100 г на 100 г): ")
-	if !scanner.Scan() {
-		fmt.Println("\x1b[31mПомилка: ліміт цукру не може бути порожнім\x1b[0m")
-		return
-	}
-	limitText := strings.TrimSpace(scanner.Text())
-	sugarLimit, err := strconv.ParseFloat(limitText, 64)
-	if err != nil || math.IsNaN(sugarLimit) || math.IsInf(sugarLimit, 0) || sugarLimit < 0.1 || sugarLimit > 100 {
-		fmt.Println("\x1b[31mПомилка: ліміт цукру має бути числом від 0.1 до 100\x1b[0m")
-		return
-	}
-
-	satisfying := make([]float64, 0, len(values))
-	for _, value := range values {
-		if value <= sugarLimit {
-			satisfying = append(satisfying, value)
+	fmt.Fprintf(w, "%sПовтори:%s\n", yellow, reset)
+	if len(rep.Repeats) == 0 {
+		fmt.Fprintln(w, "  Повторів немає")
+	} else {
+		for _, r := range rep.Repeats {
+			fmt.Fprintf(w, "  %.2f зустрічається %d раз(и)\n", r.Value, r.Count)
 		}
 	}
+}
 
-	percentage := float64(len(satisfying)) / float64(len(values)) * 100
-	fmt.Println("\x1b[33mЗначення, що відповідають ліміту:\x1b[0m", satisfying)
-	fmt.Printf("\x1b[33mЗадовільняючих результатів: %d із %d (%.2f%%)\x1b[0m\n", len(satisfying), len(values), percentage)
+func printHelp(w io.Writer) {
+	fmt.Fprintln(w, "nutrition — CLI-аналізатор харчової цінності (Варіант 19)")
+	fmt.Fprintln(w, "Використання:")
+	fmt.Fprintln(w, "  nutrition analyze --count <5..100> --subject <назва> [--seed <число>] [--no-color]")
+	fmt.Fprintln(w, "  nutrition help | version")
 }
