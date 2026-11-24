@@ -46,6 +46,7 @@ func runAnalyze(args []string, stdout, stderr io.Writer) int {
 	subject := fs.String("subject", "", "Категорія продуктів (до 100 символів)")
 	seed := fs.Int64("seed", 0, "Необов'язковий seed для відтворюваності")
 	noColor := fs.Bool("no-color", false, "Вимкнути кольори")
+	limit := fs.Float64("limit", 0, "ліміт вмісту цукру (0..100)")
 	fs.Usage = func() { printHelp(stderr) }
 
 	if err := fs.Parse(args); err != nil {
@@ -71,11 +72,20 @@ func runAnalyze(args []string, stdout, stderr io.Writer) int {
 	}
 
 	hasSeed := false
+	hasLimit := false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "seed" {
 			hasSeed = true
 		}
+		if f.Name == "limit" {
+			hasLimit = true
+		}
 	})
+
+	if hasLimit && (*limit < 0 || *limit > 100) {
+		fmt.Fprintln(stderr, "Помилка: --limit має бути від 0 до 100")
+		return 2
+	}
 
 	var raw []float64
 	var err error
@@ -95,17 +105,17 @@ func runAnalyze(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	rep, err := sample.Analyze()
+	rep, err := sample.Analyze(*limit)
 	if err != nil {
 		fmt.Fprintf(stderr, "Помилка аналізу: %v\n", err)
 		return 1
 	}
 
-	printReport(stdout, rep, sample.Values(), !*noColor)
+	printReport(stdout, rep, sample.Values(), !*noColor, hasLimit, *limit)
 	return 0
 }
 
-func printReport(w io.Writer, rep analyzer.AnalysisReport, values []float64, color bool) {
+func printReport(w io.Writer, rep analyzer.AnalysisReport, values []float64, color bool, hasLimit bool, limit float64) {
 	green, yellow, reset := "", "", ""
 	if color {
 		green, yellow, reset = "\x1b[32m", "\x1b[33m", "\x1b[0m"
@@ -129,11 +139,14 @@ func printReport(w io.Writer, rep analyzer.AnalysisReport, values []float64, col
 			fmt.Fprintf(w, "  %.2f зустрічається %d раз(и)\n", r.Value, r.Count)
 		}
 	}
+	if hasLimit {
+		fmt.Fprintf(w, "Перевищують ліміт (%.2f): %d\n", limit, rep.AboveLimit)
+	}
 }
 
 func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "nutrition — CLI-аналізатор харчової цінності")
 	fmt.Fprintln(w, "Використання:")
-	fmt.Fprintln(w, "  nutrition analyze --count <5..100> --subject <назва> [--seed <число>] [--no-color]")
+	fmt.Fprintln(w, "  nutrition analyze --count <5..100> --subject <назва> [--seed <число>] [--no-color] [--limit <0..100>]")
 	fmt.Fprintln(w, "  nutrition help | version")
 }

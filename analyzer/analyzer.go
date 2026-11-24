@@ -23,17 +23,18 @@ type RepeatItem struct {
 }
 
 type AnalysisReport struct {
-	Subject  string
-	Count    int
-	Min      float64
-	Max      float64
-	Sum      float64
-	Average  float64
-	Low      int
-	Moderate int
-	High     int
-	VeryHigh int
-	Repeats  []RepeatItem
+	Subject    string
+	Count      int
+	Min        float64
+	Max        float64
+	Sum        float64
+	Average    float64
+	Low        int
+	Moderate   int
+	High       int
+	VeryHigh   int
+	Repeats    []RepeatItem
+	AboveLimit int
 }
 
 func NewSugarSample(subject string, raw []float64) (SugarSample, error) {
@@ -62,7 +63,7 @@ func (s SugarSample) Values() []float64 {
 	return out
 }
 
-func (s SugarSample) Analyze() (AnalysisReport, error) {
+func (s SugarSample) Analyze(limit float64) (AnalysisReport, error) {
 	if len(s.values) < MinCount {
 		return AnalysisReport{}, errors.New("некоректний стан вибірки")
 	}
@@ -83,6 +84,10 @@ func (s SugarSample) Analyze() (AnalysisReport, error) {
 			rep.Max = v
 		}
 		rep.Sum += v
+
+		if v > limit {
+			rep.AboveLimit++
+		}
 
 		switch {
 		case v <= 5:

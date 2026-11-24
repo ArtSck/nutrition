@@ -37,7 +37,7 @@ func TestAnalyze(t *testing.T) {
 		t.Fatalf("несподівана помилка: %v", err)
 	}
 
-	rep, err := s.Analyze()
+	rep, err := s.Analyze(0)
 	if err != nil {
 		t.Fatalf("помилка Analyze: %v", err)
 	}
